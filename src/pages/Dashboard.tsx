@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Dashboard() {
@@ -10,8 +11,11 @@ export default function Dashboard() {
         <button onClick={signOut}>Se déconnecter</button>
       </div>
       <p>Rôle : {cmsUser?.role}</p>
+      <p>
+        <Link to="/recipes/new">+ Nouvelle recette</Link>
+      </p>
       <p style={{ color: '#666' }}>
-        Prochaine étape : formulaire de rédaction de recette (rédacteur) et écran de validation (admin).
+        Prochaine étape : liste des brouillons et écran de validation admin (section 7 du cahier des charges).
       </p>
     </div>
   );
