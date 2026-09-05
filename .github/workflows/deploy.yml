@@ -17,9 +17,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,17 +29,34 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Verify Supabase secrets
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ]; then
+            echo "::error::VITE_SUPABASE_URL est vide ou absent dans GitHub Secrets."
+            exit 1
+          fi
+
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_ANON_KEY est vide ou absent dans GitHub Secrets."
+            exit 1
+          fi
+
+          echo "Les deux secrets Supabase sont présents."
+
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
