@@ -52,6 +52,16 @@ jobs:
 
           echo "Les deux secrets Supabase sont présents."
 
+          case "$VITE_SUPABASE_URL" in
+            http://*|https://*)
+              echo "VITE_SUPABASE_URL commence correctement par http:// ou https://."
+              ;;
+            *)
+              echo "::error::VITE_SUPABASE_URL n'est pas une URL HTTP/HTTPS valide."
+              exit 1
+              ;;
+          esac
+
       - name: Build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
