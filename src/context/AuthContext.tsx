@@ -22,15 +22,26 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
-async function loadCmsUser(userId: string): Promise<CmsUser | null> {
+async function loadCmsUser(userId: string): Promise<{ user: CmsUser | null; serverError: string | null }> {
   const { data, error } = await supabase
     .from('cms_users')
     .select('id, role, display_name, is_active')
     .eq('id', userId)
     .single();
 
-  if (error || !data) return null;
-  return data as CmsUser;
+  if (error) {
+    // PGRST116 = aucune ligne trouvée (single() sur 0 résultat) — cas normal
+    // d'un compte auth sans droit CMS, pas une erreur serveur.
+    if (error.code === 'PGRST116') {
+      return { user: null, serverError: null };
+    }
+    // Toute autre erreur (500, policy RLS cassée, etc.) est une vraie erreur
+    // serveur — ne jamais l'afficher comme un simple refus d'accès.
+    console.error('Erreur lors du chargement du profil CMS :', error);
+    return { user: null, serverError: `Erreur serveur (${error.code ?? '?'}) : ${error.message}` };
+  }
+
+  return { user: data as CmsUser, serverError: null };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -43,8 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session) {
-        const user = await loadCmsUser(session.user.id);
+        const { user, serverError } = await loadCmsUser(session.user.id);
         setCmsUser(user);
+        if (serverError) setError(serverError);
       }
       setLoading(false);
     });
@@ -52,8 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session) {
-        const user = await loadCmsUser(session.user.id);
+        const { user, serverError } = await loadCmsUser(session.user.id);
         setCmsUser(user);
+        if (serverError) setError(serverError);
       } else {
         setCmsUser(null);
       }
@@ -70,7 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw authError;
     }
 
-    const user = await loadCmsUser(data.user.id);
+    const { user, serverError } = await loadCmsUser(data.user.id);
+
+    if (serverError) {
+      // Erreur serveur réelle (ex : policy RLS cassée) — distincte d'un accès refusé.
+      // On ne déconnecte pas automatiquement : l'utilisateur doit voir le vrai message.
+      setError(serverError);
+      throw new Error(serverError);
+    }
 
     // Un compte auth.users sans ligne cms_users associée, ou désactivé,
     // n'a aucun droit d'accès au CMS — même si l'authentification a réussi.
