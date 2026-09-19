@@ -99,7 +99,7 @@ export default function RecipeForm() {
         supabase.from('measurement_units').select('id, label, grams_equivalent').order('id'),
         supabase
           .from('ingredients')
-          .select('id, name, status')
+          .select('id, name, status, no_measure')
           .eq('status', 'active')
           .order('id'),
       ]);
@@ -185,6 +185,7 @@ export default function RecipeForm() {
         is_new: false,
         quantity: null,
         unit_id: null,
+        no_measure: option.no_measure,
       },
     ]);
 
@@ -223,7 +224,7 @@ export default function RecipeForm() {
     // Cela évite un doublon si la liste locale n'était pas encore à jour.
     const { data: existingIngredients, error: existingError } = await supabase
       .from('ingredients')
-      .select('id, name, status')
+      .select('id, name, status, no_measure')
       .eq('status', 'active');
 
     if (existingError) {
@@ -260,7 +261,7 @@ export default function RecipeForm() {
         status: 'pending',
         requested_by: cmsUser.id,
       })
-      .select('id, name, status')
+      .select('id, name, status, no_measure')
       .single();
 
     if (error || !data) {
@@ -280,6 +281,7 @@ export default function RecipeForm() {
         is_new: true,
         quantity: null,
         unit_id: null,
+        no_measure: false,
       },
     ]);
 
@@ -330,6 +332,8 @@ export default function RecipeForm() {
     }
 
     for (const line of ingredientLines) {
+      if (line.no_measure) continue; // sel, poivre... pas de quantité à préciser
+
       if (line.quantity == null || line.quantity <= 0) {
         return `Quantité manquante pour "${line.name_fr}".`;
       }
@@ -648,47 +652,55 @@ export default function RecipeForm() {
               )}
             </span>
 
-            <input
-              type="number"
-              placeholder="Quantité"
-              style={{
-                ...inputStyle,
-                margin: 0,
-                flex: 1,
-              }}
-              value={line.quantity ?? ''}
-              onChange={(e) =>
-                updateIngredientLine(i, {
-                  quantity: e.target.value
-                    ? Number(e.target.value)
-                    : null,
-                })
-              }
-            />
+            {line.no_measure ? (
+              <span style={{ flex: 2, color: '#666', fontStyle: 'italic' }}>
+                Pas de quantité à préciser
+              </span>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  placeholder="Quantité"
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    flex: 1,
+                  }}
+                  value={line.quantity ?? ''}
+                  onChange={(e) =>
+                    updateIngredientLine(i, {
+                      quantity: e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                    })
+                  }
+                />
 
-            <select
-              style={{
-                ...inputStyle,
-                margin: 0,
-                flex: 1,
-              }}
-              value={line.unit_id ?? ''}
-              onChange={(e) =>
-                updateIngredientLine(i, {
-                  unit_id: e.target.value
-                    ? Number(e.target.value)
-                    : null,
-                })
-              }
-            >
-              <option value="">Unité</option>
+                <select
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    flex: 1,
+                  }}
+                  value={line.unit_id ?? ''}
+                  onChange={(e) =>
+                    updateIngredientLine(i, {
+                      unit_id: e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                    })
+                  }
+                >
+                  <option value="">Unité</option>
 
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.label.fr}
-                </option>
-              ))}
-            </select>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.label.fr}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <button
               type="button"

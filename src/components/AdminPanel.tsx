@@ -9,6 +9,7 @@ interface DraftIngredientLine {
   is_new: boolean;
   quantity: number | null;
   unit_id: number | null;
+  no_measure: boolean;
 }
 
 interface RecipeDraft {
@@ -36,6 +37,7 @@ interface PendingIngredient {
 interface IngredientOption {
   id: number;
   name: { fr: string };
+  no_measure: boolean;
 }
 
 interface UnitOption {
@@ -88,7 +90,7 @@ export default function AdminPanel() {
         .eq("status", "soumis")
         .order("submitted_at", { ascending: true }),
       supabase.from("ingredients").select("id, name").eq("status", "pending"),
-      supabase.from("ingredients").select("id, name").eq("status", "active"),
+      supabase.from("ingredients").select("id, name, no_measure").eq("status", "active"),
       supabase.from("measurement_units").select("id, label").order("id"),
     ]);
 
@@ -369,9 +371,9 @@ export default function AdminPanel() {
                         <button
                           type="button"
                           onClick={() => setEditingId(draft.id)}
-                        >
-                          Corriger
-                        </button>
+                      >
+                        Corriger
+                      </button>
                       </div>
                     </>
                   )}

@@ -7,11 +7,13 @@ interface DraftIngredientLine {
   is_new: boolean;
   quantity: number | null;
   unit_id: number | null;
+  no_measure: boolean;
 }
 
 interface IngredientOption {
   id: number;
   name: { fr: string };
+  no_measure: boolean;
 }
 
 interface UnitOption {
@@ -116,7 +118,7 @@ export default function EditableRecipeDraft({
   function addIngredientLine(option: IngredientOption) {
     setLines((prev) => [
       ...prev,
-      { ingredient_id: option.id, name_fr: option.name.fr, is_new: false, quantity: null, unit_id: null },
+      { ingredient_id: option.id, name_fr: option.name.fr, is_new: false, quantity: null, unit_id: null, no_measure: option.no_measure },
     ]);
     setIngredientSearch('');
     setIngredientResults([]);
@@ -128,7 +130,7 @@ export default function EditableRecipeDraft({
     const { data, error: insertError } = await supabase
       .from('ingredients')
       .insert({ name: { fr: clean }, status: 'pending', requested_by: writerId })
-      .select('id, name')
+      .select('id, name, no_measure')
       .single();
     if (insertError || !data) {
       setError(`Impossible de créer l'ingrédient : ${insertError?.message ?? 'erreur inconnue'}`);
@@ -136,7 +138,7 @@ export default function EditableRecipeDraft({
     }
     setLines((prev) => [
       ...prev,
-      { ingredient_id: data.id, name_fr: data.name.fr, is_new: true, quantity: null, unit_id: null },
+      { ingredient_id: data.id, name_fr: data.name.fr, is_new: true, quantity: null, unit_id: null, no_measure: false },
     ]);
     setIngredientSearch('');
     setIngredientResults([]);
@@ -155,6 +157,7 @@ export default function EditableRecipeDraft({
       return;
     }
     for (const line of lines) {
+      if (line.no_measure) continue;
       if (line.quantity == null || line.quantity <= 0 || line.unit_id == null) {
         setError(`Quantité ou unité manquante pour "${line.name_fr}".`);
         return;
@@ -247,23 +250,29 @@ export default function EditableRecipeDraft({
             <span style={{ flex: 2 }}>
               {line.name_fr} {line.is_new && <em style={{ color: '#b06d00' }}>(nouveau)</em>}
             </span>
-            <input
-              type="number"
-              placeholder="Quantité"
-              style={{ ...inputStyle, margin: 0, flex: 1 }}
-              value={line.quantity ?? ''}
-              onChange={(e) => updateLine(i, { quantity: e.target.value ? Number(e.target.value) : null })}
-            />
-            <select
-              style={{ ...inputStyle, margin: 0, flex: 1 }}
-              value={line.unit_id ?? ''}
-              onChange={(e) => updateLine(i, { unit_id: e.target.value ? Number(e.target.value) : null })}
-            >
-              <option value="">Unité</option>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>{u.label.fr}</option>
-              ))}
-            </select>
+            {line.no_measure ? (
+              <span style={{ flex: 2, color: '#666', fontStyle: 'italic' }}>Pas de quantité à préciser</span>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  placeholder="Quantité"
+                  style={{ ...inputStyle, margin: 0, flex: 1 }}
+                  value={line.quantity ?? ''}
+                  onChange={(e) => updateLine(i, { quantity: e.target.value ? Number(e.target.value) : null })}
+                />
+                <select
+                  style={{ ...inputStyle, margin: 0, flex: 1 }}
+                  value={line.unit_id ?? ''}
+                  onChange={(e) => updateLine(i, { unit_id: e.target.value ? Number(e.target.value) : null })}
+                >
+                  <option value="">Unité</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>{u.label.fr}</option>
+                  ))}
+                </select>
+              </>
+            )}
             <button type="button" onClick={() => removeLine(i)}>✕</button>
           </div>
         ))}

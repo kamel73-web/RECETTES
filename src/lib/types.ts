@@ -27,6 +27,7 @@ export interface IngredientOption {
   id: number;
   name: I18nText;
   status: 'pending' | 'active';
+  no_measure: boolean;
 }
 
 // Une ligne d'ingrédient telle que stockée dans recipe_drafts.ingredients (jsonb)
@@ -36,4 +37,5 @@ export interface DraftIngredientLine {
   is_new: boolean; // true si créé en 'pending' pendant la rédaction de cette recette
   quantity: number | null;
   unit_id: number | null;
+  no_measure: boolean; // dénormalisé depuis ingredients.no_measure au moment de l'ajout
 }
