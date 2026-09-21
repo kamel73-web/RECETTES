@@ -45,6 +45,11 @@ interface UnitOption {
   label: { fr: string };
 }
 
+interface CategoryOption {
+  fr: string;
+  full: Record<string, string>;
+}
+
 const sectionStyle: React.CSSProperties = {
   border: "1px solid #ddd",
   borderRadius: 6,
@@ -74,6 +79,7 @@ export default function AdminPanel() {
     IngredientOption[]
   >([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +89,7 @@ export default function AdminPanel() {
     setLoading(true);
     setError(null);
 
-    const [draftsRes, pendingRes, activeRes, unitsRes] = await Promise.all([
+    const [draftsRes, pendingRes, activeRes, unitsRes, categoriesRes] = await Promise.all([
       supabase
         .from("recipe_drafts")
         .select("*, writer:cms_users(display_name)")
@@ -92,6 +98,7 @@ export default function AdminPanel() {
       supabase.from("ingredients").select("id, name").eq("status", "pending"),
       supabase.from("ingredients").select("id, name, no_measure").eq("status", "active"),
       supabase.from("measurement_units").select("id, label").order("id"),
+      supabase.from("ingredients").select("category").not("category", "is", null),
     ]);
 
     if (
@@ -116,6 +123,22 @@ export default function AdminPanel() {
       );
       setActiveIngredients(activeRes.data ?? []);
       setUnits(unitsRes.data ?? []);
+
+      // Déduplication des catégories par valeur "fr" (insensible à la casse/espaces) :
+      // une même valeur affichée peut être stockée avec des variantes de traduction
+      // selon qui l'a créée. On garde le premier objet rencontré pour chaque clé.
+      const catMap = new Map<string, Record<string, string>>();
+      for (const row of categoriesRes.data ?? []) {
+        const cat = row.category as Record<string, string> | null;
+        if (!cat?.fr) continue;
+        const key = cat.fr.trim().toLowerCase();
+        if (!catMap.has(key)) catMap.set(key, cat);
+      }
+      setCategories(
+        Array.from(catMap.values())
+          .map((full) => ({ fr: full.fr, full }))
+          .sort((a, b) => a.fr.localeCompare(b.fr))
+      );
     }
     setLoading(false);
   }, []);
@@ -246,7 +269,9 @@ export default function AdminPanel() {
               <PendingIngredientRow
                 key={ing.id}
                 ingredient={ing}
+                categories={categories}
                 onCompleted={load}
+                onDeleted={load}
               />
             ))}
           </div>
@@ -366,7 +391,7 @@ export default function AdminPanel() {
                           type="button"
                           onClick={() => rejectDraft(draft)}
                         >
-                          Rejeter
+                        Rejeter
                         </button>
                         <button
                           type="button"
@@ -402,20 +427,99 @@ export default function AdminPanel() {
 
 function PendingIngredientRow({
   ingredient,
+  categories,
   onCompleted,
+  onDeleted,
 }: {
   ingredient: PendingIngredient;
+  categories: CategoryOption[];
   onCompleted: () => void;
+  onDeleted: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [categoryFr, setCategoryFr] = useState("");
+
+  const [categorySearch, setCategorySearch] = useState("");
+  const [categoryResults, setCategoryResults] = useState<CategoryOption[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryOption | null>(null);
+  const [translatingCategory, setTranslatingCategory] = useState(false);
+
   const [minQuantity, setMinQuantity] = useState<number | "">("");
   const [noMeasure, setNoMeasure] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
 
+  function handleCategorySearch(value: string) {
+    setCategorySearch(value);
+    setSelectedCategory(null);
+    const q = value.trim().toLowerCase();
+    if (q.length < 2) {
+      setCategoryResults([]);
+      return;
+    }
+    setCategoryResults(
+      categories.filter((c) => c.fr.toLowerCase().includes(q)).slice(0, 8)
+    );
+  }
+
+  function selectCategory(cat: CategoryOption) {
+    setSelectedCategory(cat);
+    setCategorySearch(cat.fr);
+    setCategoryResults([]);
+  }
+
+  // MyMemory ne traduit qu'un texte à la fois. Appel direct depuis le navigateur
+  // (même service que l'Edge Function approve-recipe, pas d'authentification requise) —
+  // volume négligeable ici (un seul mot ou groupe de mots par nouvelle catégorie).
+  async function translateOne(text: string, targetLang: string): Promise<string> {
+    const params = new URLSearchParams({ q: text, langpair: `fr|${targetLang}` });
+    const res = await fetch(`https://api.mymemory.translated.net/get?${params.toString()}`);
+    if (!res.ok) throw new Error(`Échec traduction (${targetLang}) : HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.responseStatus && data.responseStatus !== 200) {
+      throw new Error(`Échec traduction (${targetLang}) : ${data.responseDetails ?? data.responseStatus}`);
+    }
+    return data.responseData?.translatedText ?? "";
+  }
+
+  async function createNewCategory() {
+    const clean = categorySearch.trim();
+    if (!clean) return;
+
+    // Sécurité anti-doublon, comme pour les ingrédients : re-vérifier avant de créer.
+    const existing = categories.find((c) => c.fr.toLowerCase() === clean.toLowerCase());
+    if (existing) {
+      selectCategory(existing);
+      return;
+    }
+
+    setTranslatingCategory(true);
+    setRowError(null);
+    try {
+      const [en, ar, it, es] = await Promise.all([
+        translateOne(clean, "en"),
+        translateOne(clean, "ar"),
+        translateOne(clean, "it"),
+        translateOne(clean, "es"),
+      ]);
+      const full = { fr: clean, en, ar, it, es };
+      setSelectedCategory({ fr: clean, full });
+      setCategorySearch(clean);
+      setCategoryResults([]);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : "Erreur de traduction.");
+    } finally {
+      setTranslatingCategory(false);
+    }
+  }
+
   async function complete() {
+    if (!selectedCategory) {
+      setRowError("Choisis une catégorie existante ou crée-en une nouvelle avant de valider.");
+      return;
+    }
+
     setSaving(true);
     setRowError(null);
     try {
@@ -437,7 +541,7 @@ function PendingIngredientRow({
       const { error: updateError } = await supabase
         .from("ingredients")
         .update({
-          category: categoryFr.trim() ? { fr: categoryFr.trim() } : null,
+          category: selectedCategory.full,
           min_quantity: minQuantity === "" ? null : minQuantity,
           no_measure: noMeasure,
           image_url: imageUrl,
@@ -454,6 +558,50 @@ function PendingIngredientRow({
     }
   }
 
+  async function remove() {
+    if (!window.confirm(`Supprimer définitivement "${ingredient.name.fr}" ? Cette action est irréversible.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    setRowError(null);
+    try {
+      // Vérification d'intégrité : un brouillon (quel que soit son statut) qui
+      // référence encore cet ingrédient empêcherait ensuite son approbation
+      // (dish_ingredients.ingredient_id pointerait sur une ligne inexistante).
+      const { data: allDrafts, error: draftsError } = await supabase
+        .from("recipe_drafts")
+        .select("id, name_fr, ingredients");
+
+      if (draftsError) throw new Error(draftsError.message);
+
+      const referencing = (allDrafts ?? []).filter((d) =>
+        (d.ingredients as { ingredient_id: number }[]).some(
+          (line) => line.ingredient_id === ingredient.id
+        )
+      );
+
+      if (referencing.length > 0) {
+        const names = referencing.map((d) => `"${d.name_fr}"`).join(", ");
+        throw new Error(
+          `Impossible de supprimer : utilisé dans ${referencing.length} brouillon(s) (${names}). Supprime-le d'abord de ces recettes.`
+        );
+      }
+
+      const { error: deleteError } = await supabase
+        .from("ingredients")
+        .delete()
+        .eq("id", ingredient.id);
+
+      if (deleteError) throw new Error(deleteError.message);
+      onDeleted();
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : "Erreur inconnue.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div style={{ borderTop: "1px solid #eee", paddingTop: 8, marginTop: 8 }}>
       <div
@@ -464,19 +612,67 @@ function PendingIngredientRow({
         }}
       >
         <span>{ingredient.name.fr}</span>
-        <button type="button" onClick={() => setOpen((o) => !o)}>
-          {open ? "Fermer" : "Compléter"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => setOpen((o) => !o)}>
+            {open ? "Fermer" : "Compléter"}
+          </button>
+          <button type="button" disabled={deleting} onClick={remove}>
+            {deleting ? "Suppression…" : "Supprimer"}
+          </button>
+        </div>
       </div>
       {open && (
         <div style={{ marginTop: 8 }}>
           {rowError && <p style={{ color: "#b00020" }}>{rowError}</p>}
+
           <label>Catégorie</label>
-          <input
-            style={inputStyle}
-            value={categoryFr}
-            onChange={(e) => setCategoryFr(e.target.value)}
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              style={inputStyle}
+              placeholder="Rechercher une catégorie existante…"
+              value={categorySearch}
+              onChange={(e) => handleCategorySearch(e.target.value)}
+            />
+            {categoryResults.length > 0 && (
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  border: "1px solid #ccc",
+                  position: "absolute",
+                  background: "white",
+                  width: "100%",
+                  zIndex: 1,
+                }}
+              >
+                {categoryResults.map((c) => (
+                  <li
+                    key={c.fr}
+                    style={{ padding: 8, cursor: "pointer" }}
+                    onClick={() => selectCategory(c)}
+                  >
+                    {c.fr}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {selectedCategory && (
+              <p style={{ fontSize: 13, color: "green", margin: "4px 0" }}>
+                ✓ {selectedCategory.fr}
+              </p>
+            )}
+            {!selectedCategory &&
+              categorySearch.trim().length >= 2 &&
+              categoryResults.length === 0 && (
+                <button type="button" disabled={translatingCategory} onClick={createNewCategory}>
+                  {translatingCategory
+                    ? "Traduction…"
+                    : `+ Créer la catégorie "${categorySearch.trim()}"`}
+                </button>
+              )}
+          </div>
+
           <label>Quantité minimale (liste de courses)</label>
           <input
             type="number"
