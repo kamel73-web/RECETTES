@@ -259,6 +259,7 @@ export default function RecipeForm() {
       .insert({
         name: { fr: cleanName },
         status: 'pending',
+        no_measure: false,
         requested_by: cmsUser.id,
       })
       .select('id, name, status, no_measure')

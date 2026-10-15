@@ -688,7 +688,7 @@ function PendingIngredientRow({
               checked={noMeasure}
               onChange={(e) => setNoMeasure(e.target.checked)}
             />{" "}
-            Sans unité de mesure (no_measure)
+            Sans unité de mesure (sel, poivre, eau…) : coché = TRUE, décoché = FALSE
           </label>
           <label style={{ display: "block", marginTop: 8 }}>
             Image (optionnel)
