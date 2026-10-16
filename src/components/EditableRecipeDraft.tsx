@@ -58,7 +58,6 @@ export default function EditableRecipeDraft({
   draft,
   activeIngredients,
   units,
-  writerId,
   onSaved,
   onCancel,
 }: {
@@ -127,9 +126,20 @@ export default function EditableRecipeDraft({
   async function createAndAddIngredient(nameTyped: string) {
     const clean = nameTyped.trim();
     if (!clean) return;
+    const cleanNorm = normalizeIngredientName(clean);
+    if (activeIngredients.some((i) => normalizeIngredientName(i.name.fr) === cleanNorm)) {
+      setError('L\'ingrédient "' + clean + '" existe déjà : sélectionne-le dans la liste.');
+      return;
+    }
+    const { data: authData } = await supabase.auth.getUser();
+    const adminId = authData.user?.id;
+    if (!adminId) {
+      setError('Session expirée : reconnecte-toi.');
+      return;
+    }
     const { data, error: insertError } = await supabase
       .from('ingredients')
-      .insert({ name: { fr: clean }, status: 'pending', requested_by: writerId })
+      .insert({ name: { fr: clean }, status: 'pending', no_measure: false, requested_by: adminId })
       .select('id, name, no_measure')
       .single();
     if (insertError || !data) {
@@ -283,9 +293,22 @@ export default function EditableRecipeDraft({
             placeholder="Ajouter un ingrédient…"
             value={ingredientSearch}
             onChange={(e) => handleIngredientSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              const typed = ingredientSearch.trim();
+              if (typed.length < 2) return;
+              const typedNorm = normalizeIngredientName(typed);
+              const found = activeIngredients.find((i) => normalizeIngredientName(i.name.fr) === typedNorm);
+              if (found) {
+                if (!lines.some((l) => l.ingredient_id === found.id)) addIngredientLine(found);
+                return;
+              }
+              createAndAddIngredient(typed);
+            }}
           />
           {ingredientResults.length > 0 && (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, border: '1px solid #ccc', position: 'absolute', background: 'white', width: '100%', zIndex: 1 }}>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, border: '1px solid #ccc', position: 'static', background: 'white', width: '100%', zIndex: 1 }}>
               {ingredientResults.map((opt) => (
                 <li key={opt.id} style={{ padding: 8, cursor: 'pointer' }} onClick={() => addIngredientLine(opt)}>
                   {opt.name.fr}
@@ -293,7 +316,7 @@ export default function EditableRecipeDraft({
               ))}
             </ul>
           )}
-          {ingredientSearch.trim().length >= 2 && ingredientResults.length === 0 && (
+          {ingredientSearch.trim().length >= 2 && !activeIngredients.some((i) => normalizeIngredientName(i.name.fr) === normalizeIngredientName(ingredientSearch)) && (
             <button type="button" onClick={() => createAndAddIngredient(ingredientSearch.trim())}>
               + Créer "{ingredientSearch.trim()}" (nouveau, en attente)
             </button>
