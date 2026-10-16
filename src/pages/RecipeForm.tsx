@@ -719,9 +719,17 @@ export default function RecipeForm() {
             style={inputStyle}
             placeholder="Rechercher un ingrédient…"
             value={ingredientSearch}
-            onChange={(e) =>
-              setIngredientSearch(e.target.value)
-            }
+            onChange={(e) => setIngredientSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              const typed = ingredientSearch.trim();
+              if (typed.length < 2) return;
+              const typedNorm = normalizeIngredientName(typed);
+              const exact = activeIngredients.find((i) => normalizeIngredientName(i.name.fr) === typedNorm);
+              if (exact) { selectExistingIngredient(exact); return; }
+              createPendingIngredient(typed);
+            }}
           />
 
           {ingredientResults.length > 0 && (
@@ -731,7 +739,7 @@ export default function RecipeForm() {
                 margin: 0,
                 padding: 0,
                 border: '1px solid #ccc',
-                position: 'absolute',
+                position: 'static',
                 background: 'white',
                 width: '100%',
                 zIndex: 1,
@@ -755,7 +763,7 @@ export default function RecipeForm() {
           )}
 
           {ingredientSearch.trim().length >= 2 &&
-            ingredientResults.length === 0 && (
+            !activeIngredients.some((i) => normalizeIngredientName(i.name.fr) === normalizeIngredientName(ingredientSearch)) && (
               <button
                 type="button"
                 onClick={() =>
