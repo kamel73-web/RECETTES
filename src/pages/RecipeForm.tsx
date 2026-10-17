@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VoiceButton, appendDictation } from '../components/VoiceButton';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -476,6 +477,8 @@ export default function RecipeForm() {
           onChange={(e) => setNameFr(e.target.value)}
         />
 
+        <VoiceButton onText={(t) => setNameFr(appendDictation(nameFr, t))} />
+
         <label style={labelStyle}>Description</label>
 
         <textarea
@@ -483,6 +486,8 @@ export default function RecipeForm() {
           value={descriptionFr}
           onChange={(e) => setDescriptionFr(e.target.value)}
         />
+
+        <VoiceButton onText={(t) => setDescriptionFr(appendDictation(descriptionFr, t))} />
 
         <label style={labelStyle}>
           Étapes de préparation *
@@ -512,6 +517,8 @@ export default function RecipeForm() {
                 updateStep(i, e.target.value)
               }
             />
+
+            <VoiceButton compact onText={(t) => updateStep(i, appendDictation(step, t))} />
 
             {steps.length > 1 && (
               <button
